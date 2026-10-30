@@ -1,0 +1,16 @@
+# =============================================================
+# Dockerfile cho FastAPI API Server
+# Phục vụ giao diện web Command Center và các REST API endpoints.
+# =============================================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8080
+
+CMD ["python", "run_api.py"]

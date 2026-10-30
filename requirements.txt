@@ -1,2 +1,43 @@
-google-api-python-client
-python-dotenv
+# ==============================================================
+# YouTube AI Auto Ops - Dependencies
+# ==============================================================
+
+# --- YouTube & Google APIs ---
+google-api-python-client==2.122.0
+google-auth-oauthlib==1.2.0
+
+# --- AI / LLM ---
+openai==1.14.0
+
+# --- Message Queue ---
+pika==1.3.2
+
+# --- Cache ---
+redis==5.0.3
+
+# --- Database ---
+psycopg2-binary==2.9.9
+
+# --- Web Framework ---
+fastapi==0.111.0
+uvicorn==0.30.1
+
+# --- HTTP & Utilities ---
+requests==2.31.0
+python-dotenv==1.0.1
+
+# --- Video Ingestion Pipeline (Phase 1) ---
+yt-dlp
+ffmpeg-python==0.2.0
+youtube-transcript-api==1.2.4
+
+# --- OCR & Vision (Phase 2) ---
+rapidocr-onnxruntime
+httpx==0.27.2
+
+# --- Testing ---
+pytest==8.2.0
+
+# --- Knowledge Builder (Phase 3) ---
+sentence-transformers==3.3.1
+numpy==1.26.4

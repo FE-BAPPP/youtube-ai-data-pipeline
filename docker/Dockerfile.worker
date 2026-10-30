@@ -1,0 +1,16 @@
+# =============================================================
+# Dockerfile cho Worker (Scraper / AI)
+# Mặc định chạy Scraper Worker.
+# Để chạy AI Worker, override CMD: ["python", "run_ai_worker.py"]
+# =============================================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Default: scraper worker. Override with: CMD ["python", "run_ai_worker.py"]
+CMD ["python", "run_scraper.py"]

@@ -11,6 +11,7 @@ venv.bak/
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # IDEs and Editors
 .vscode/
@@ -28,3 +29,22 @@ data/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Frontend (future)
+frontend/node_modules/
+
+# Docker volumes (local dev)
+docker/volumes/
+
+# Media Processing temp files (Phase 1 — Ingest Pipeline)
+temp_media/
+
+# HuggingFace model cache (bge-m3 ~2GB - khong bao gio commit)
+hf_cache/
+
+# Media processing output frames
+output/
+
+# OAuth secrets (phong ho, file nay khong duoc commit)
+client_secrets.json
+user_token.json

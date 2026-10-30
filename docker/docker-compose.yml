@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # 1. HÀNG ĐỢI (MESSAGE QUEUE)
+  # RabbitMQ: Trung tâm điều phối tin nhắn giữa Scraper và AI Worker.
+  # Sử dụng cơ chế Durable + Manual ACK để đảm bảo không mất dữ liệu.
+  # Dashboard quản lý: http://localhost:15672 (guest/guest)
+  # ============================================================
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: yt_rabbitmq
+    ports:
+      - "5672:5672"   # Cổng giao tiếp cho code Python (AMQP protocol)
+      - "15672:15672" # Cổng giao diện Web UI (Dashboard)
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq # Lưu trữ dữ liệu xuống ổ cứng, chống mất Data khi sập nguồn
+    restart: unless-stopped
+
+  # ============================================================
+  # 2. BỘ NHỚ ĐỆM (CACHE / DEDUPLICATION)
+  # Redis: Bộ nhớ In-Memory dùng để khử trùng lặp comment (Deduplication).
+  # Alpine Linux = bản siêu nhẹ (~5MB), tiết kiệm tài nguyên.
+  # ============================================================
+  redis:
+    image: redis:alpine
+    container_name: yt_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data # Lưu cấu hình Redis
+    restart: unless-stopped
+
+  # ============================================================
+  # 3. CƠ SỞ DỮ LIỆU (DATABASE)
+  # PostgreSQL 15: Lưu trữ vĩnh viễn kết quả phân tích AI.
+  # Tự động tạo User, Password và Database khi khởi chạy lần đầu.
+  # Kết nối: postgresql://postgres:123456@localhost:5432/youtube_ai_db
+  # ============================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: yt_postgres
+    environment:
+      # Lấy trực tiếp từ file .env của bạn để đảm bảo đồng bộ 100% với file code Python
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-123456}
+      POSTGRES_DB: ${DB_NAME:-youtube_ai_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Ghi vĩnh viễn dữ liệu vào máy, tránh mất comment khi xóa Docker
+    restart: unless-stopped
+
+  # ============================================================
+  # 4. HỆ THỐNG PHÂN TÍCH & DASHBOARD (DATA WAREHOUSE UI)
+  # Metabase: Công cụ BI để tạo báo cáo và dashboard trực quan.
+  # Dashboard: http://localhost:3000
+  # ============================================================
+  metabase:
+    image: metabase/metabase:latest
+    container_name: yt_metabase
+    ports:
+      - "3000:3000" # Cổng để bạn mở giao diện trên Web
+    volumes:
+      - metabase_data:/metabase-data # Khóa cấu hình dashboard vào ổ cứng
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    restart: unless-stopped
+    depends_on:
+      - postgres # Phải chờ Database chạy lên thì Metabase mới được khởi động
+
+  # ============================================================
+  # 5. AUTOMATION WORKFLOW (n8n)
+  # n8n: Nền tảng tự động hóa workflow, nhận webhook từ AI Worker,
+  # ghi log vào Google Sheets và bắn cảnh báo Telegram.
+  # Dashboard: http://localhost:5678
+  # ============================================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: yt_n8n
+    ports:
+      - "5678:5678" # Cổng giao diện n8n workflow editor
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme
+      - WEBHOOK_URL=http://localhost:5678/
+    volumes:
+      - n8n_data:/home/node/.n8n # Lưu trữ workflow và credentials
+    restart: unless-stopped
+
+# Khai báo không gian lưu trữ vật lý trên máy tính
+volumes:
+  rabbitmq_data:
+    external: true
+    name: 4f97a42589836264263d3ab09b6473fd05619af2ef122ee5fe775e67d7976cf9
+  redis_data:
+    external: true
+    name: 89d923b31b7106377067ff83d32c1a84908fa7e7f127916893f4f358c490b501
+  postgres_data:
+    external: true
+    name: 05047c9791b0ad6d5c1f91fbe6166c609287a1322b32ee89cc32cbdfb1fcf657
+  metabase_data:
+  n8n_data:
+    external: true
+    name: n8n_data

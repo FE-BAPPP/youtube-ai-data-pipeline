@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI YouTube Command Center</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/modal.css">
+</head>
+<body>
+
+  <h1>COMMAND CENTER ✦ AI AUTO</h1>
+
+  <div class="container">
+    
+    <!-- Thanh Tìm Kiếm -->
+    <div class="glass-panel full-width">
+      <h2 class="section-title">✨ AI Social Listening (Quét Video & Kênh YouTube)</h2>
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Nhập Link YouTube (https://...) hoặc từ khóa..." onkeypress="handleEnter(event)">
+        <button onclick="searchVideos()">Bắt đầu Quét</button>
+      </div>
+    </div>
+
+    <!-- Bảng Kho Video -->
+    <div class="glass-panel full-width">
+      <h2 class="section-title">📥 Kho Video lọt vào Tầm ngắm</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Tên Kênh</th>
+            <th>Tựa đề Video</th>
+            <th>Trạng thái</th>
+            <th style="text-align: right;">Hành động</th>
+          </tr>
+        </thead>
+        <tbody id="videosTable">
+          <!-- Đổ dữ liệu từ API bằng JavaScript -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Bảng Máy Trạm AI -->
+    <div class="glass-panel full-width">
+      <h2 class="section-title">⚡ Tiến độ Máy trạm (AI Workers)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Phân loại</th>
+            <th>Trạng thái</th>
+            <th>Đã xử lý</th>
+          </tr>
+        </thead>
+        <tbody id="jobsTable">
+          <!-- Đổ dữ liệu từ API bằng JavaScript -->
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <div id="notification">✅ Đã phóng Radar tìm kiếm thành công! Cứ để AI lo phần còn lại.</div>
+
+  <!-- Modal Đẻ Ý Tưởng -->
+  <div class="modal-overlay" id="ideaModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>💡 Ý Tưởng Video Từ Đối Thủ</h2>
+        <button class="close-btn" onclick="closeModal('ideaModal')">×</button>
+      </div>
+      <div class="modal-body" id="ideaModalBody">
+        <!-- Đổ dữ liệu ý tưởng bằng JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Bắt Lỗi Đối Thủ -->
+  <div class="modal-overlay" id="flawModal">
+    <div class="modal-content" style="border-color: #f43f5e; box-shadow: 0 25px 50px -12px rgba(244, 63, 94, 0.5);">
+      <div class="modal-header" style="background: rgba(244, 63, 94, 0.05);">
+        <h2 style="background: linear-gradient(to right, #f43f5e, #fb923c); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">🚨 Báo Cáo Điểm Yếu</h2>
+        <button class="close-btn" onclick="closeModal('flawModal')">×</button>
+      </div>
+      <div class="modal-body" id="flawModalBody">
+        <!-- Đổ dữ liệu bắt lỗi bằng JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
