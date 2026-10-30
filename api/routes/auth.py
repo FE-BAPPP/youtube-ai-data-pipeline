@@ -21,17 +21,16 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Cấu hình OAuth 2.0 chuẩn
-CLIENT_SECRETS_FILE = getattr(config, "OAUTH_CLIENT_SECRETS_FILE", "client_secrets.json")
+CLIENT_SECRETS_FILE = config.OAUTH_CLIENT_SECRETS_FILE
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
 
 # Tạm thời lưu token vào file (Thực tế có thể lưu vào DB)
-TOKEN_FILE = "user_token.json"
+TOKEN_FILE = config.OAUTH_TOKEN_FILE
 
 
 def _get_redirect_uri() -> str:
     """Tạo redirect URI dựa trên cấu hình port."""
-    port = getattr(config, "APP_PORT", 8080)
-    return f"http://localhost:{port}/auth/callback"
+    return f"http://localhost:{config.API_PORT}/auth/callback"
 
 
 @router.get("/login")

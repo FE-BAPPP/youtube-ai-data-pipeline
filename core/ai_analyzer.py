@@ -10,6 +10,7 @@ Module này xử lý:
 
 import base64
 import json
+import re
 import threading
 import time
 
@@ -19,6 +20,22 @@ from utils.config import config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _extract_json(raw_text: str):
+    """Trích xuất và parse JSON từ response của AI.
+
+    Bỏ markdown code fence (```json ... ``` hoặc ``` ... ```) nếu có,
+    kể cả khi xung quanh còn text thừa, rồi json.loads.
+
+    Raises:
+        json.JSONDecodeError: Nếu nội dung không phải JSON hợp lệ.
+    """
+    text = raw_text.strip()
+    match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+    if match:
+        text = match.group(1)
+    return json.loads(text)
 
 # TÍNH NĂNG MỚI: VÒNG XOAY TOKEN (TOKEN ROTATION)
 # Lấy danh sách Token từ config (đã parse từ .env)
@@ -98,12 +115,7 @@ Cấu trúc mỗi đối tượng trong mảng:
                 model="openai/gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw_text = response.choices[0].message.content.strip()
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:-3].strip()
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:-3].strip()
-            return json.loads(raw_text)
+            return _extract_json(response.choices[0].message.content)
 
         except Exception as e:
             error_msg = str(e)
@@ -253,13 +265,7 @@ Cấu trúc mỗi ý tưởng:
                 model="openai/gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw_text = response.choices[0].message.content.strip()
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:-3].strip()
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:-3].strip()
-                
-            ideas = json.loads(raw_text)
+            ideas = _extract_json(response.choices[0].message.content)
             logger.info("🎉 Đã đẻ ra %d ý tưởng video siêu cháy!", len(ideas))
             return ideas
 
@@ -345,13 +351,7 @@ Cấu trúc JSON:
                 model="openai/gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw_text = response.choices[0].message.content.strip()
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:-3].strip()
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:-3].strip()
-                
-            report = json.loads(raw_text)
+            report = _extract_json(response.choices[0].message.content)
             logger.info("🎯 Đã phân tích xong Điểm Yếu đối thủ!")
             return report
 
@@ -465,13 +465,7 @@ Cấu trúc JSON:
                     }
                 ],
             )
-            raw_text = response.choices[0].message.content.strip()
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:-3].strip()
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:-3].strip()
-
-            result = json.loads(raw_text)
+            result = _extract_json(response.choices[0].message.content)
             logger.info(
                 f"✅ Phân tích Vision thành công: scene={result.get('scene_type')} "
                 f"| {result.get('description_short', '')}"

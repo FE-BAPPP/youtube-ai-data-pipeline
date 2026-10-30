@@ -76,8 +76,21 @@ class Config:
     # dùng thread giúp tận dụng nhiều nhân CPU. Mặc định 4.
     OCR_MAX_WORKERS: int = int(os.getenv("OCR_MAX_WORKERS", "4"))
 
-    # --- FastAPI Application Configuration (Sếp thêm đoạn này vào nhé) ---
-    API_PORT: int = int(os.getenv("API_PORT", "8000"))
+    # --- FastAPI Application Configuration ---
+    # Nguồn duy nhất quyết định port của API server (run_api.py, api/app.py, api/routes/auth.py)
+    API_PORT: int = int(os.getenv("API_PORT", "8080"))
+
+    # Danh sách origin được phép gọi API (phân cách bằng dấu phẩy).
+    # Mặc định chỉ cho phép localhost — frontend được serve same-origin nên gần như không cần CORS.
+    CORS_ORIGINS: list[str] = [
+        o.strip()
+        for o in os.getenv("CORS_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080").split(",")
+        if o.strip()
+    ]
+
+    # --- OAuth2 (kết nối kênh YouTube) ---
+    OAUTH_CLIENT_SECRETS_FILE: str = os.getenv("OAUTH_CLIENT_SECRETS_FILE", "client_secrets.json")
+    OAUTH_TOKEN_FILE: str = os.getenv("OAUTH_TOKEN_FILE", "user_token.json")
 
     # --- Legacy (Giữ lại để tương thích ngược) ---
     VIDEO_ID: str = os.getenv("VIDEO_ID", "fSyw-jZ_f18")

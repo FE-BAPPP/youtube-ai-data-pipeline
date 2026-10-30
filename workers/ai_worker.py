@@ -44,6 +44,10 @@ _shutdown_requested = False
 # Batch size — Rút tối đa 10 tin nhắn mỗi lần để tiết kiệm API
 BATCH_SIZE = 10
 
+# Số lần tối đa một batch được requeue khi AI/API thất bại.
+# Vượt ngưỡng sẽ bị đẩy vào Dead Letter Queue (DLQ) thay vì quấn vòng vô hạn.
+MAX_RETRIES = 3
+
 
 def _signal_handler(signum: int, frame: Any) -> None:
     """Xử lý tín hiệu SIGINT/SIGTERM để tắt worker an toàn."""
@@ -79,6 +83,8 @@ def _connect_rabbitmq() -> tuple[pika.BlockingConnection, pika.adapters.blocking
             connection = pika.BlockingConnection(params)
             channel = connection.channel()
             channel.queue_declare(queue=queue_name, durable=True)
+            # DLQ: đựng các batch lỗi vĩnh viễn (vượt MAX_RETRIES) để vận hành xem lại
+            channel.queue_declare(queue=f"{queue_name}_dlq", durable=True)
             logger.info("✅ Đã kết nối thành công với RabbitMQ")
             return connection, channel
         except pika.exceptions.AMQPConnectionError as e:
@@ -111,6 +117,7 @@ def _ensure_rabbitmq_connection(
 def _process_batch(
     channel: pika.adapters.blocking_connection.BlockingChannel,
     method_frames: list[pika.spec.Basic.GetOk],
+    properties_list: list[pika.BasicProperties],
     bodies: list[bytes],
 ) -> None:
     """Xử lý một cụm (batch) bình luận lấy từ RabbitMQ.
@@ -121,15 +128,19 @@ def _process_batch(
     3. Lưu vào Database PostgreSQL
     4. Kích hoạt Webhook n8n
     5. Đánh dấu done vào Redis
-    6. ACK thành công hoặc NACK nếu lỗi
+    6. ACK thành công — hoặc requeue có giới hạn (MAX_RETRIES) rồi rơi vào DLQ
 
     Args:
         channel: RabbitMQ channel.
         method_frames: Danh sách method frames cho ACK/NACK.
+        properties_list: Danh sách properties của từng message (chứa headers).
         bodies: Danh sách nội dung message dạng bytes.
     """
     logger.info("==============================================")
     logger.info("🔥 BẮT ĐẦU RÚT %d BÌNH LUẬN TỪ HÀNG ĐỢI ĐỂ XỬ LÝ", len(bodies))
+
+    queue_name = getattr(config, "RABBITMQ_QUEUE", "youtube_comments")
+    dlq_name = f"{queue_name}_dlq"
 
     # Giải mã dữ liệu từ Queue
     raw_comments: list[dict] = []
@@ -179,17 +190,70 @@ def _process_batch(
 
     except Exception as e:
         logger.error("❌ Xử lý thất bại: %s", e)
-        logger.info("🔄 Đang trả lại toàn bộ bình luận về Hàng đợi (Re-queue)...")
-        # Trả lại (NACK) để RabbitMQ giữ lại tin nhắn, không bị mất data
-        for method_frame in method_frames:
+
+        # Số lần batch này đã bị requeue trước đó (đếm qua header x-retry-count)
+        retry_count = max(
+            ((props.headers or {}).get("x-retry-count", 0) for props in properties_list),
+            default=0,
+        )
+
+        if retry_count < MAX_RETRIES:
+            # Requeue CÓ GIỚI HẠN: publish bản mới kèm header tăng số lần thử rồi ACK
+            # bản gốc. (NACK requeue thuần không sửa được header nên phải republish.)
+            logger.info(
+                "🔄 Requeue lần %d/%d — nghỉ 15 giây rồi thử lại...",
+                retry_count + 1, MAX_RETRIES,
+            )
+            time.sleep(15)
             try:
-                channel.basic_nack(
-                    delivery_tag=method_frame.delivery_tag, requeue=True
+                for props, body in zip(properties_list, bodies):
+                    headers = dict(props.headers or {})
+                    headers["x-retry-count"] = retry_count + 1
+                    channel.basic_publish(
+                        exchange="",
+                        routing_key=queue_name,
+                        body=body,
+                        properties=pika.BasicProperties(
+                            delivery_mode=2, headers=headers
+                        ),
+                    )
+                for method_frame in method_frames:
+                    channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+            except pika.exceptions.AMQPError:
+                # Publish không thành công (connection đứt) — NACK giữ nguyên message
+                # để RabbitMQ redeliver, không mất dữ liệu.
+                logger.warning("🔄 Publish requeue lỗi. NACK giữ message nguyên vị.")
+                for method_frame in method_frames:
+                    try:
+                        channel.basic_nack(
+                            delivery_tag=method_frame.delivery_tag, requeue=True
+                        )
+                    except Exception:
+                        pass
+        else:
+            # Hết lượt retry → đẩy vào DLQ kèm thông tin lỗi, rồi ACK khỏi queue chính.
+            logger.critical(
+                "☠️ Batch thất bại %d lần liên tiếp. Đẩy %d message vào DLQ (%s). "
+                "Xem lại tại đó!",
+                retry_count, len(bodies), dlq_name,
+            )
+            for props, method_frame, body in zip(
+                properties_list, method_frames, bodies
+            ):
+                headers = dict(props.headers or {})
+                headers["x-retry-count"] = retry_count
+                headers["x-last-error"] = str(e)[:500]
+                channel.basic_publish(
+                    exchange="",
+                    routing_key=dlq_name,
+                    body=body,
+                    properties=pika.BasicProperties(
+                        delivery_mode=2, headers=headers
+                    ),
                 )
-            except Exception:
-                pass
-        # Nghỉ xả hơi chút trước khi rút lô mới
-        time.sleep(15)
+                channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+            # Nghỉ xả hơi chút trước khi rút lô mới
+            time.sleep(15)
 
 
 def run_ai_worker() -> None:
@@ -231,6 +295,7 @@ def run_ai_worker() -> None:
             connection, channel = _ensure_rabbitmq_connection(connection, channel)
 
             method_frames: list[pika.spec.Basic.GetOk] = []
+            properties_list: list[pika.BasicProperties] = []
             bodies: list[bytes] = []
 
             # Rút tối đa BATCH_SIZE tin nhắn mỗi lần (Batch processing) để tiết kiệm API
@@ -241,6 +306,7 @@ def run_ai_worker() -> None:
                     )
                     if method_frame:
                         method_frames.append(method_frame)
+                        properties_list.append(properties)
                         bodies.append(body)
                     else:
                         break  # Hàng đợi đã trống
@@ -250,7 +316,7 @@ def run_ai_worker() -> None:
                 continue
 
             if bodies:
-                _process_batch(channel, method_frames, bodies)
+                _process_batch(channel, method_frames, properties_list, bodies)
             else:
                 # Hàng đợi trống, đi ngủ 5 giây rồi kiểm tra lại
                 logger.debug("💤 Hàng đợi trống. AI đang ngủ chờ dữ liệu mới...")

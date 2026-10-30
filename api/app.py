@@ -22,6 +22,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from utils.logger import get_logger
+from utils.config import config
 from database.connection import init_db
 
 from api.routes.dashboard import router as dashboard_router
@@ -57,11 +58,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware cho local development
+# CORS middleware — chỉ cho phép origin đáng tin (mặc định localhost).
+# Nếu CORS_ORIGINS="*" thì phải tắt credentials (bắt buộc theo CORS spec).
+_allow_all = "*" in config.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=config.CORS_ORIGINS,
+    allow_credentials=not _allow_all,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -102,11 +105,10 @@ def main() -> None:
     """Entry point — chạy server bằng uvicorn."""
     import uvicorn
 
-    port = int(os.getenv("APP_PORT", "8080"))
     logger.info("🚀 BẢNG ĐIỀU KHIỂN (COMMAND CENTER) ĐÃ SẴN SÀNG!")
-    logger.info("👉 Hướng dẫn: Mở trình duyệt và truy cập: http://localhost:%d", port)
-    logger.info("👉 OAuth Login: http://localhost:%d/auth/login", port)
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    logger.info("👉 Hướng dẫn: Mở trình duyệt và truy cập: http://localhost:%d", config.API_PORT)
+    logger.info("👉 OAuth Login: http://localhost:%d/auth/login", config.API_PORT)
+    uvicorn.run(app, host="0.0.0.0", port=config.API_PORT)
 
 
 if __name__ == "__main__":

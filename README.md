@@ -89,47 +89,54 @@ youtube_auto_ops/
 ├── run_api.py                  # Entry point: API Server
 ├── run_scraper.py              # Entry point: Scraper Worker
 ├── run_ai_worker.py            # Entry point: AI Worker
+├── run_media_worker.py         # Entry point: Media Worker (Whisper, OCR, Frames)
 ├── requirements.txt            # Python dependencies
 ├── .env.example                # Template biến môi trường
 │
 ├── api/                        # FastAPI web application
-│   ├── __init__.py
-│   ├── app.py                  # FastAPI app + mount static files
-│   └── routes.py               # REST API endpoints
+│   ├── app.py                  # FastAPI app + mount static files + CORS
+│   └── routes/                 # dashboard, videos, auth, ideas, flaws, knowledge
 │
 ├── core/                       # Business logic chính
-│   ├── __init__.py
-│   ├── ai_analyzer.py          # Phân tích comment bằng GPT-4o
+│   ├── ai_analyzer.py          # Phân tích comment bằng GPT-4o (+ ideas, flaws, Vision)
+│   ├── media_processor.py      # Transcript, tải audio (yt-dlp), trích xuất frames
+│   ├── ocr_engine.py           # OCR frame (RapidOCR)
+│   ├── embedding_engine.py     # Embedding tri thức (bge-m3)
+│   ├── knowledge_builder.py    # Chunking + nạp tri thức vào Qdrant
+│   ├── rag_agent.py            # Chatbot hỏi-đáp RAG
 │   └── video_sources.py        # Tìm kiếm video từ nhiều nguồn
 │
 ├── workers/                    # Background workers
-│   ├── __init__.py
 │   ├── scraper_worker.py       # Producer: YouTube → Redis → RabbitMQ
-│   └── ai_worker.py            # Consumer: RabbitMQ → AI → PostgreSQL
+│   ├── ai_worker.py            # Consumer: RabbitMQ → AI → PostgreSQL (+ DLQ)
+│   ├── media_worker.py         # Whisper + OCR pipeline
+│   ├── knowledge_worker.py     # Xây dựng knowledge base
+│   └── rabbitmq_utils.py       # Tiện ích kết nối RabbitMQ
 │
 ├── integrations/               # Tích hợp bên ngoài
-│   ├── __init__.py
-│   ├── youtube_client.py       # YouTube Data API v3 wrapper
+│   ├── youtube_client.py       # YouTube Data API v3 + OAuth2 wrapper
 │   └── n8n_webhook.py          # Gửi webhook tới n8n
 │
 ├── database/                   # Tầng database
-│   ├── __init__.py
 │   ├── connection.py           # Connection pool + schema init
-│   └── queries.py              # SQL queries (CRUD)
+│   ├── models.py               # Định nghĩa bảng + views
+│   └── queries.py              # SQL queries (CRUD, parameterized)
 │
 ├── utils/                      # Tiện ích dùng chung
-│   ├── __init__.py
-│   ├── config.py               # Đọc biến môi trường (.env)
+│   ├── config.py               # Đọc biến môi trường (.env) — nguồn cấu hình duy nhất
 │   ├── logger.py               # Cấu hình logging
-│   └── cache.py                # Redis cache + deduplication
+│   └── cache.py                # Redis cache + deduplication (seen/done)
 │
 ├── frontend/                   # Giao diện Command Center
 │   ├── index.html
-│   ├── css/style.css
+│   ├── css/
 │   └── js/app.js
 │
+├── colab/                      # Whisper server chạy trên Google Colab
+│   └── whisper_server.py
+│
 ├── docker/                     # Docker configuration
-│   ├── docker-compose.yml      # Orchestration: RabbitMQ, Redis, PostgreSQL, Metabase, n8n
+│   ├── docker-compose.yml      # RabbitMQ, Redis, PostgreSQL, Metabase, n8n
 │   ├── Dockerfile.api
 │   └── Dockerfile.worker
 │
@@ -137,8 +144,8 @@ youtube_auto_ops/
 │   ├── architecture.md         # Kiến trúc hệ thống (mermaid diagrams)
 │   └── setup.md                # Hướng dẫn cài đặt chi tiết
 │
-└── tests/                      # Unit tests
-    └── test_placeholder.py
+└── tests/                      # Unit tests (scraper, AI worker, JSON parser, RAG)
+    └── ...
 ```
 
 ---
@@ -172,6 +179,7 @@ youtube_auto_ops/
 | `REDIS_HOST` | Redis host | `localhost` |
 | `N8N_WEBHOOK_URL` | URL webhook n8n | *(tùy chọn)* |
 | `API_PORT` | Cổng API server | `8080` |
+| `CORS_ORIGINS` | Origin được phép gọi API (phân cách `,`) | `http://localhost:8080,http://127.0.0.1:8080` |
 
 > **Lưu ý**: Nếu chạy Python bên trong Docker, đổi `localhost` → tên container (`yt_rabbitmq`, `yt_redis`, `yt_postgres`).
 
@@ -183,6 +191,12 @@ youtube_auto_ops/
 |---|---|---|
 | `GET` | `/api/data` | Lấy dữ liệu dashboard (videos + jobs) |
 | `POST` | `/api/search` | Tìm kiếm video theo từ khóa |
+| `POST` | `/api/competitor` | Cào video kênh đối thủ |
+| `POST` | `/api/sync` | Đồng bộ kênh của bạn (OAuth2) |
+| `POST` | `/api/ideas/generate` | AI đề xuất ý tưởng video từ bình luận |
+| `POST` | `/api/flaws/generate` | AI phân tích điểm yếu đối thủ |
+| `POST` | `/api/knowledge/ask` | Hỏi đáp RAG trên knowledge base |
+| `GET` | `/auth/login` | Đăng nhập Google OAuth2 (kết nối kênh) |
 | `GET` | `/` | Giao diện Command Center (HTML) |
 
 ### Ví dụ sử dụng
@@ -230,6 +244,19 @@ docker exec yt_redis redis-cli flushall
 ### Xem logs RabbitMQ
 
 Truy cập http://localhost:15672 → Queues → `youtube_comments`
+
+### Xử lý batch lỗi (Dead Letter Queue)
+
+Khi AI worker thất bại xử lý 1 batch quá 3 lần liên tiếp (rate limit kéo dài, lỗi dữ liệu...),
+batch sẽ bị đẩy sang queue `youtube_comments_dlq` kèm header `x-last-error`. Kiểm tra và xử lý lại:
+
+```bash
+# Xem số message đang kẹt trong DLQ
+docker exec yt_rabbitmq rabbitmqctl list_queues name messages
+
+# Xem nội dung lỗi của từng message
+# Truy cập http://localhost:15672 → Queues → youtube_comments_dlq → Get Message(s)
+```
 
 ### Thêm nguồn video mới
 

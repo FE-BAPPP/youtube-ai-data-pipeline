@@ -85,7 +85,9 @@ def _connect_rabbitmq() -> tuple[pika.BlockingConnection, pika.adapters.blocking
                 host=config.RABBITMQ_HOST,
                 port=config.RABBITMQ_PORT,
                 credentials=credentials,
-                heartbeat=0,
+                # heartbeat=0 vô hiệu hóa heartbeat → connection chết (half-open)
+                # sẽ không bao giờ được phát hiện, worker treo im. Đồng bộ 600s với ai_worker.
+                heartbeat=600,
                 blocked_connection_timeout=300,
             )
             connection = pika.BlockingConnection(params)
